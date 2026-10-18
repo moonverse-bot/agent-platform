@@ -1,0 +1,11 @@
+[project]
+name = "agent-platform"
+version = "0.1.0"
+description = "智能工单 / 客服 Agent 平台:FastAPI 后端 + 工具调用 Agent"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["."]

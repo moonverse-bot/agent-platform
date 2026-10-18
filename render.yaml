@@ -1,0 +1,52 @@
+# Render Blueprint:推送仓库后在 Render 控制台选 "New +" -> "Blueprint" 指向本仓库,
+# 它会按下面的配置一次性建好 Web 服务和环境变量。详细步骤见 DEPLOY.md。
+#
+# 默认用 SQLite(零外部依赖,适合演示)。注意 Render 免费实例的文件系统是临时的:
+# 每次重新部署或实例重启,数据都会重置 —— 知识库与演示账号会在启动时自动重建,
+# 但访客创建的工单和对话会丢。需要持久化就按 DEPLOY.md 的「方案 B」换成 Postgres。
+services:
+  - type: web
+    name: agent-platform
+    runtime: python
+    plan: free
+    region: singapore # 离成都最近的区域
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      # 演示账号开箱即用;公网演示建议保留,方便面试官直接登录体验
+      - key: SEED_DEMO_DATA
+        value: "true"
+      # 不要用代码里的默认值,让 Render 生成一个随机密钥
+      - key: JWT_SECRET
+        generateValue: true
+      # sync: false 表示首次部署时在 Render 控制台里手动填,不会写进仓库
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: DEEPSEEK_BASE_URL
+        value: https://api.deepseek.com
+      - key: LLM_MODEL
+        value: deepseek-chat
+      # ---- 检索 ----
+      - key: RETRIEVAL_MODE
+        value: hybrid
+      - key: KNOWLEDGE_CHUNK_SIZE
+        value: "300"
+      - key: KNOWLEDGE_CHUNK_OVERLAP
+        value: "60"
+      - key: RERANK_ENABLED
+        value: "true"
+      - key: RERANK_PROVIDER
+        value: lexical
+      # 想开真正的语义检索/重排,取消下面几行注释并在控制台填 Key 与模型名,
+      # 比如 EMBEDDING_MODEL=BAAI/bge-m3 + EMBEDDING_DIM=1024(硅基流动)
+      # - key: EMBEDDING_API_KEY
+      #   sync: false
+      # - key: EMBEDDING_BASE_URL
+      #   value: https://api.siliconflow.cn/v1
+      # - key: EMBEDDING_MODEL
+      #   value: BAAI/bge-m3
+      # - key: EMBEDDING_DIM
+      #   value: "1024"

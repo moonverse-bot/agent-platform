@@ -1,0 +1,41 @@
+# NOTE: keep this file ASCII-only.
+# pip falls back to the system locale (gbk on Chinese Windows) when a requirements
+# file has no PEP 263 encoding header, so non-ASCII comments here break
+# "pip install -r requirements.txt" with a UnicodeDecodeError.
+
+# Web framework
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+
+# Config and validation
+pydantic>=2.7
+pydantic-settings>=2.3
+
+# Data layer (SQLite for local dev, Postgres in production)
+# The [asyncio] extra is required: SQLAlchemy declares greenlet with a
+# platform_machine marker that does not match Windows ("AMD64"), so a plain
+# "pip install sqlalchemy" leaves the asyncio extension broken there.
+sqlalchemy[asyncio]>=2.0.30
+aiosqlite>=0.20
+# Needed only when DATABASE_URL points at Postgres (production). Local SQLite runs never import it.
+asyncpg>=0.29
+
+# Auth
+PyJWT>=2.8
+bcrypt>=4.1
+
+# Rate limiting and cache
+redis>=5.0
+
+# LLM (OpenAI-compatible API, DeepSeek by default)
+openai>=1.40
+httpx>=0.27
+
+# Vector search needs no extra Python package: pgvector is used through plain SQL,
+# so SQLite-only setups stay dependency-free. Postgres needs the vector extension,
+# which the pgvector/pgvector image already provides.
+
+# Tests
+pytest>=8.2
+pytest-asyncio>=0.23

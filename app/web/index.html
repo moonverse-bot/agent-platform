@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>智能工单 · 客服 Agent</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div id="login-layer" class="login-layer">
+    <form id="login-form" class="login-card">
+      <h1>智能工单 · 客服 Agent</h1>
+      <p class="login-sub">用大白话提问,助手会自己去查工单、查知识库,再把结果讲给你听。</p>
+      <label>邮箱
+        <input id="login-email" type="email" value="demo@example.com" autocomplete="username" required />
+      </label>
+      <label>密码
+        <input id="login-password" type="password" value="password-123" minlength="8"
+               autocomplete="current-password" required />
+      </label>
+      <div class="login-actions">
+        <button type="submit" class="primary">登录</button>
+        <button type="button" id="register-btn">注册新账号</button>
+      </div>
+      <p id="login-message" class="login-message"></p>
+    </form>
+  </div>
+
+  <div id="app" class="app hidden">
+    <header class="topbar">
+      <div class="brand">智能工单 · 客服 Agent</div>
+      <div class="topbar-right">
+        <span id="current-user" class="muted"></span>
+        <button id="logout-btn" class="ghost small">退出</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="panel">
+        <div class="panel-head">
+          <span>会话</span>
+          <button id="new-chat-btn" class="ghost small">+ 新对话</button>
+        </div>
+        <ul id="conversation-list" class="list"></ul>
+      </aside>
+
+      <section class="chat">
+        <div id="messages" class="messages"></div>
+        <form id="chat-form" class="composer">
+          <textarea id="chat-input" rows="1"
+            placeholder="试试点这里问:我有哪些工单?/ 退款政策是什么?/ 帮我建个工单。Enter 发送,Shift+Enter 换行"></textarea>
+          <button type="submit" id="send-btn" class="primary">发送</button>
+        </form>
+      </section>
+
+      <aside class="panel">
+        <div class="panel-head">
+          <span>我的工单</span>
+          <button id="refresh-tickets-btn" class="ghost small">刷新</button>
+        </div>
+        <div id="ticket-stats" class="stats"></div>
+        <form id="ticket-form" class="ticket-form">
+          <input id="ticket-title" placeholder="工单标题" maxlength="200" required />
+          <input id="ticket-desc" placeholder="问题描述(可选)" maxlength="4000" />
+          <div class="ticket-form-row">
+            <select id="ticket-priority">
+              <option value="low">低</option>
+              <option value="normal" selected>普通</option>
+              <option value="high">高</option>
+              <option value="urgent">紧急</option>
+            </select>
+            <button type="submit" class="primary small">新建</button>
+          </div>
+        </form>
+        <ul id="ticket-list" class="list tickets"></ul>
+      </aside>
+    </main>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
