@@ -41,6 +41,9 @@ git branch -M main
 git push -u origin main
 ```
 
+> 上面地址里的 `你的用户名` 是**占位符**,要换成你自己的 GitHub 账号名
+> (比如 `https://github.com/moonverse-bot/agent-platform.git`),不能原样执行。
+
 > `.env`、`*.db`、`.venv` 都已经写在 `.gitignore` 里,不会被推上去。
 > **永远不要把 API Key 写进代码或提交到仓库**,Key 只放在平台的环境变量里。
 
