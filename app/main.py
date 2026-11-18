@@ -16,7 +16,7 @@ from app.agent.embeddings import build_embedder
 from app.agent.rerank import build_reranker
 from app.agent.retrieval import build_chunk_vector_store, build_vector_store
 from app.agent.runner import AgentRunner
-from app.api import auth, chat, conversations, tickets
+from app.api import auth, chat, conversations, metrics, tickets
 from app.config import get_settings
 from app.core.docs import render_docs_html
 from app.core.logging import get_trace_id, set_trace_id, setup_logging
@@ -33,13 +33,13 @@ TITLE = "智能工单 / 客服 Agent 平台"
 
 DESCRIPTION = """
 用户可以**用大白话提问**,大模型会自己判断该调用哪个工具(查工单 / 建工单 / 检索知识库),
-拿到结果后再组织成中文回答。接口分四组:
+拿到结果后再组织成中文回答。接口分五组:
 
 - **auth**:注册、登录、查询当前用户。
 - **tickets**:工单的增删改查与统计,是真实的业务数据接口,也是 Agent 可以调用的底层能力。
 - **chat**:Agent 对话入口,以 SSE 流式返回工具调用过程与回答。
 - **conversations**:会话历史查询与删除,供前端恢复聊天记录。
-- **ops**:运维探活。
+- **ops**:运维探活与工具调用指标。
 
 ### 怎么在这里直接试
 
@@ -65,7 +65,7 @@ TAGS_METADATA = [
         "description": "Agent 对话入口,以 SSE 流式返回工具调用过程与回答。",
     },
     {"name": "conversations", "description": "会话历史。数据同样按登录用户隔离。"},
-    {"name": "ops", "description": "运维探活接口。"},
+    {"name": "ops", "description": "运维探活与工具调用指标。"},
 ]
 
 
@@ -163,6 +163,7 @@ def create_app() -> FastAPI:
     app.include_router(tickets.router)
     app.include_router(chat.router)
     app.include_router(conversations.router)
+    app.include_router(metrics.router)
 
     # 前端页面:纯静态资源,不走接口鉴权,数据全部由页面自己带 token 去取
     app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
