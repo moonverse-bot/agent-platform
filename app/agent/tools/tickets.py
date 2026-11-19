@@ -1,13 +1,63 @@
 """工单相关工具:让 Agent 能直接查、能直接建。"""
 
 import json
+from typing import Literal, get_args
 
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 
 from app.agent.tools.base import Tool, ToolContext
 from app.db.models import Ticket
 
 _STATUS_LABELS = {"open": "待处理", "processing": "处理中", "closed": "已关闭"}
+
+Priority = Literal["low", "normal", "high", "urgent"]
+TicketStatusArg = Literal["open", "processing", "closed"]
+_PRIORITY_VALUES = get_args(Priority)
+_STATUS_VALUES = get_args(TicketStatusArg)
+
+
+class CreateTicketArgs(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=4000)
+    priority: Priority = "normal"
+
+    @field_validator("title", "description", mode="before")
+    @classmethod
+    def normalize_text(cls, value):
+        if value is None:
+            return ""
+        return str(value).strip()
+
+    @field_validator("priority", mode="before")
+    @classmethod
+    def normalize_priority(cls, value):
+        if value is None:
+            return "normal"
+        return str(value).strip().lower()
+
+
+class ListMyTicketsArgs(BaseModel):
+    status: TicketStatusArg | None = None
+    limit: int = Field(default=10, ge=1, le=50)
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def normalize_status(cls, value):
+        if value is None or not str(value).strip():
+            return None
+        return str(value).strip().lower()
+
+    @field_validator("limit", mode="before")
+    @classmethod
+    def normalize_limit(cls, value):
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return 10
+        return value
+
+
+class GetTicketArgs(BaseModel):
+    ticket_id: int = Field(ge=1)
 
 
 def _serialize(ticket: Ticket) -> dict:
@@ -21,15 +71,11 @@ def _serialize(ticket: Ticket) -> dict:
 
 
 async def create_ticket(ctx: ToolContext, args: dict) -> str:
-    title = str(args.get("title", "")).strip()
-    if not title:
-        return "创建失败:title 不能为空。"
-
     ticket = Ticket(
         owner_id=ctx.user_id,
-        title=title[:200],
-        description=str(args.get("description", "")).strip()[:4000],
-        priority=args.get("priority") or "normal",
+        title=args["title"],
+        description=args.get("description", ""),
+        priority=args["priority"],
     )
     ctx.session.add(ticket)
     await ctx.session.commit()
@@ -45,7 +91,7 @@ async def list_my_tickets(ctx: ToolContext, args: dict) -> str:
     status = args.get("status")
     if status:
         stmt = stmt.where(Ticket.status == status)
-    stmt = stmt.order_by(Ticket.created_at.desc()).limit(int(args.get("limit") or 10))
+    stmt = stmt.order_by(Ticket.created_at.desc()).limit(args.get("limit", 10))
     tickets = list(await ctx.session.scalars(stmt))
     if not tickets:
         return "当前没有符合条件的工单。"
@@ -56,10 +102,7 @@ async def list_my_tickets(ctx: ToolContext, args: dict) -> str:
 
 
 async def get_ticket(ctx: ToolContext, args: dict) -> str:
-    try:
-        ticket_id = int(args["ticket_id"])
-    except (KeyError, TypeError, ValueError):
-        return "查询失败:ticket_id 必须是整数。"
+    ticket_id = args["ticket_id"]
 
     ticket = await ctx.session.scalar(
         select(Ticket).where(Ticket.id == ticket_id, Ticket.owner_id == ctx.user_id)
@@ -80,11 +123,20 @@ TICKET_TOOLS = [
         parameters={
             "type": "object",
             "properties": {
-                "title": {"type": "string", "description": "工单标题,一句话概括问题"},
-                "description": {"type": "string", "description": "问题详情"},
+                "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "description": "工单标题,一句话概括问题",
+                },
+                "description": {
+                    "type": "string",
+                    "maxLength": 4000,
+                    "description": "问题详情",
+                },
                 "priority": {
                     "type": "string",
-                    "enum": ["low", "normal", "high", "urgent"],
+                    "enum": list(_PRIORITY_VALUES),
                     "description": "优先级,默认 normal",
                 },
             },
@@ -92,6 +144,7 @@ TICKET_TOOLS = [
         },
         handler=create_ticket,
         tags=["ticket"],
+        args_model=CreateTicketArgs,
     ),
     Tool(
         name="list_my_tickets",
@@ -101,24 +154,37 @@ TICKET_TOOLS = [
             "properties": {
                 "status": {
                     "type": "string",
-                    "enum": ["open", "processing", "closed"],
+                    "enum": list(_STATUS_VALUES),
                     "description": "可选,按状态过滤",
                 },
-                "limit": {"type": "integer", "description": "返回条数,默认 10"},
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 50,
+                    "description": "返回条数,默认 10,最多 50",
+                },
             },
         },
         handler=list_my_tickets,
         tags=["ticket"],
+        args_model=ListMyTicketsArgs,
     ),
     Tool(
         name="get_ticket",
         description="按编号查询单条工单的详情,包括完整描述与状态。",
         parameters={
             "type": "object",
-            "properties": {"ticket_id": {"type": "integer", "description": "工单编号"}},
+            "properties": {
+                "ticket_id": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "工单编号(正整数)",
+                }
+            },
             "required": ["ticket_id"],
         },
         handler=get_ticket,
         tags=["ticket"],
+        args_model=GetTicketArgs,
     ),
 ]

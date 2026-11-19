@@ -18,6 +18,7 @@
 import json
 import logging
 
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 
 from app.agent.embeddings import Embedder, build_embedder, embed_cached
@@ -50,6 +51,17 @@ _CHUNK_PREVIEW_LIMIT = 500
 # 向量这一路失败后的冷却时间。Embedding 服务挂了如果每次提问都先等一次超时,
 # 一个挂掉的外部依赖会把所有对话都拖慢;冷却期内直接跳过向量检索。
 _VECTOR_BREAKER = CircuitBreaker(cooldown_seconds=60.0)
+
+
+class SearchKnowledgeArgs(BaseModel):
+    query: str = Field(min_length=1, max_length=500)
+
+    @field_validator("query", mode="before")
+    @classmethod
+    def normalize_query(cls, value):
+        if value is None:
+            return ""
+        return str(value).strip()
 
 
 def reset_vector_circuit() -> None:
@@ -221,9 +233,7 @@ async def _rerank(
 
 
 async def search_knowledge(ctx: ToolContext, args: dict) -> str:
-    query = str(args.get("query", "")).strip()
-    if not query:
-        return "检索失败:query 不能为空。"
+    query = args["query"]
 
     query_terms = terms(query)
     if not query_terms:
@@ -301,10 +311,18 @@ KNOWLEDGE_TOOLS = [
         ),
         parameters={
             "type": "object",
-            "properties": {"query": {"type": "string", "description": "用户的原始问题或关键词"}},
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500,
+                    "description": "用户的原始问题或关键词",
+                }
+            },
             "required": ["query"],
         },
         handler=search_knowledge,
         tags=["knowledge"],
+        args_model=SearchKnowledgeArgs,
     ),
 ]

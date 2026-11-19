@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = 60.0
     llm_max_tool_rounds: int = 4
 
+    # 单次工具调用的默认超时。超时只结束当前工具并返回可读错误,
+    # 不让一个挂住的外部依赖把整轮对话拖死;单个工具可以覆盖这个值。
+    tool_timeout_seconds: float = Field(default=30.0, gt=0)
+
     # 知识库检索
     # mode: hybrid(关键词 + 向量排名融合,默认)| keyword(只走关键词)| vector(只走向量)
     retrieval_mode: str = "hybrid"

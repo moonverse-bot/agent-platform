@@ -1,5 +1,6 @@
 """工具层:直接对数据库操作,验证降级与数据隔离。"""
 
+import asyncio
 import json
 
 from sqlalchemy import select
@@ -28,6 +29,23 @@ async def test_create_ticket_tool_persists_and_logs(db_user: ToolContext):
     assert any(log.tool_name == "create_ticket" and log.ok for log in logs)
 
 
+async def test_create_ticket_tool_rejects_invalid_priority(db_user: ToolContext):
+    result = await build_default_registry().execute(
+        "create_ticket", {"title": "测试工单", "priority": "紧急"}, db_user
+    )
+
+    assert result.ok is False
+    assert result.error == "invalid_arguments"
+    assert "priority" in result.output
+
+    tickets = list(
+        await db_user.session.scalars(
+            select(Ticket).where(Ticket.owner_id == db_user.user_id)
+        )
+    )
+    assert tickets == []
+
+
 async def test_get_ticket_tool_hides_other_users_tickets(db_user: ToolContext):
     stranger = User(
         email="stranger@example.com", display_name="陌生人", hashed_password="x"
@@ -47,6 +65,26 @@ async def test_get_ticket_tool_hides_other_users_tickets(db_user: ToolContext):
     assert "未找到" in result.output
 
 
+async def test_get_ticket_tool_rejects_non_positive_id(db_user: ToolContext):
+    result = await build_default_registry().execute(
+        "get_ticket", {"ticket_id": 0}, db_user
+    )
+
+    assert result.ok is False
+    assert result.error == "invalid_arguments"
+    assert "ticket_id" in result.output
+
+
+async def test_list_my_tickets_tool_rejects_invalid_limit(db_user: ToolContext):
+    result = await build_default_registry().execute(
+        "list_my_tickets", {"limit": "abc"}, db_user
+    )
+
+    assert result.ok is False
+    assert result.error == "invalid_arguments"
+    assert "limit" in result.output
+
+
 async def test_search_knowledge_tool_returns_relevant_article(db_user: ToolContext):
     result = await build_default_registry().execute(
         "search_knowledge", {"query": "退款要多久到账"}, db_user
@@ -62,6 +100,16 @@ async def test_search_knowledge_tool_reports_empty_result(db_user: ToolContext):
         "search_knowledge", {"query": "zzzz-不存在的主题-qqqq"}, db_user
     )
     assert "没有找到" in result.output
+
+
+async def test_search_knowledge_tool_rejects_blank_query(db_user: ToolContext):
+    result = await build_default_registry().execute(
+        "search_knowledge", {"query": "   "}, db_user
+    )
+
+    assert result.ok is False
+    assert result.error == "invalid_arguments"
+    assert "query" in result.output
 
 
 async def test_unknown_tool_returns_available_names(db_user: ToolContext):
@@ -90,3 +138,64 @@ async def test_tool_exception_is_converted_to_text(db_user: ToolContext):
     result = await registry.execute("boom", {}, db_user)
     assert result.ok is False
     assert "下游服务超时" in result.output
+
+
+async def test_tool_timeout_is_reported_and_logged(db_user: ToolContext):
+    from app.agent.tools.base import Tool, ToolRegistry
+
+    async def slow(ctx, args):
+        await asyncio.sleep(0.05)
+        return "迟到的结果"
+
+    registry = ToolRegistry(
+        [
+            Tool(
+                name="slow",
+                description="总是超时的工具",
+                parameters={"type": "object", "properties": {}},
+                handler=slow,
+            )
+        ],
+        default_timeout_seconds=0.01,
+    )
+
+    result = await registry.execute("slow", {}, db_user)
+
+    assert result.ok is False
+    assert result.error == "tool_timeout"
+    assert "执行超时" in result.output
+
+    logs = list(
+        await db_user.session.scalars(
+            select(ToolCallLog).where(ToolCallLog.tool_name == "slow")
+        )
+    )
+    assert len(logs) == 1
+    assert logs[0].ok is False
+    assert "执行超时" in logs[0].result_preview
+
+
+async def test_tool_timeout_can_be_overridden_per_tool(db_user: ToolContext):
+    from app.agent.tools.base import Tool, ToolRegistry
+
+    async def quick(ctx, args):
+        await asyncio.sleep(0.01)
+        return "完成"
+
+    registry = ToolRegistry(
+        [
+            Tool(
+                name="quick",
+                description="快速工具",
+                parameters={"type": "object", "properties": {}},
+                handler=quick,
+                timeout_seconds=1.0,
+            )
+        ],
+        default_timeout_seconds=0.001,
+    )
+
+    result = await registry.execute("quick", {}, db_user)
+
+    assert result.ok is True
+    assert result.output == "完成"
