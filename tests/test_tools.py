@@ -2,12 +2,13 @@
 
 import asyncio
 import json
+from datetime import timedelta
 
 from sqlalchemy import select
 
 from app.agent.tools import build_default_registry
 from app.agent.tools.base import ToolContext
-from app.db.models import Ticket, ToolCallLog, User
+from app.db.models import Ticket, ToolCallLog, User, utcnow
 
 
 async def test_create_ticket_tool_persists_and_logs(db_user: ToolContext):
@@ -27,6 +28,86 @@ async def test_create_ticket_tool_persists_and_logs(db_user: ToolContext):
 
     logs = list(await db_user.session.scalars(select(ToolCallLog)))
     assert any(log.tool_name == "create_ticket" and log.ok for log in logs)
+
+
+async def test_create_ticket_tool_deduplicates_recent_identical_submission(
+    db_user: ToolContext,
+):
+    registry = build_default_registry()
+    arguments = {
+        "title": "支付成功但订单未更新",
+        "description": "订单 1001 支付成功后仍显示待支付。",
+    }
+
+    first = await registry.execute("create_ticket", arguments, db_user)
+    second = await registry.execute("create_ticket", arguments, db_user)
+
+    first_payload = json.loads(first.output)
+    second_payload = json.loads(second.output)
+    assert first.ok is True and second.ok is True
+    assert first_payload["duplicate"] is False
+    assert second_payload["duplicate"] is True
+    assert second_payload["created"]["id"] == first_payload["created"]["id"]
+
+    different = await registry.execute(
+        "create_ticket",
+        {**arguments, "description": "同一标题,但补充了不同的故障现象。"},
+        db_user,
+    )
+    different_payload = json.loads(different.output)
+    assert different_payload["duplicate"] is False
+    assert different_payload["created"]["id"] != first_payload["created"]["id"]
+
+    tickets = list(
+        await db_user.session.scalars(
+            select(Ticket).where(Ticket.owner_id == db_user.user_id)
+        )
+    )
+    assert len(tickets) == 2
+
+
+async def test_create_ticket_tool_allows_repeat_after_dedupe_window(
+    db_user: ToolContext,
+):
+    old_ticket = Ticket(
+        owner_id=db_user.user_id,
+        title="登录异常",
+        description="密码正确但无法登录。",
+        created_at=utcnow() - timedelta(minutes=10),
+    )
+    db_user.session.add(old_ticket)
+    await db_user.session.commit()
+
+    result = await build_default_registry().execute(
+        "create_ticket",
+        {"title": "登录异常", "description": "密码正确但无法登录。"},
+        db_user,
+    )
+    payload = json.loads(result.output)
+
+    assert payload["duplicate"] is False
+    assert payload["created"]["id"] != old_ticket.id
+
+
+async def test_create_ticket_tool_does_not_reuse_closed_ticket(db_user: ToolContext):
+    closed_ticket = Ticket(
+        owner_id=db_user.user_id,
+        title="发票未收到",
+        description="申请后一直没收到电子发票。",
+        status="closed",
+    )
+    db_user.session.add(closed_ticket)
+    await db_user.session.commit()
+
+    result = await build_default_registry().execute(
+        "create_ticket",
+        {"title": "发票未收到", "description": "申请后一直没收到电子发票。"},
+        db_user,
+    )
+    payload = json.loads(result.output)
+
+    assert payload["duplicate"] is False
+    assert payload["created"]["id"] != closed_ticket.id
 
 
 async def test_create_ticket_tool_rejects_invalid_priority(db_user: ToolContext):

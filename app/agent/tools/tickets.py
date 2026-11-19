@@ -1,13 +1,15 @@
 """工单相关工具:让 Agent 能直接查、能直接建。"""
 
 import json
+from datetime import timedelta
 from typing import Literal, get_args
 
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 
 from app.agent.tools.base import Tool, ToolContext
-from app.db.models import Ticket
+from app.config import get_settings
+from app.db.models import Ticket, utcnow
 
 _STATUS_LABELS = {"open": "待处理", "processing": "处理中", "closed": "已关闭"}
 
@@ -70,18 +72,59 @@ def _serialize(ticket: Ticket) -> dict:
     }
 
 
+async def _find_recent_duplicate(
+    ctx: ToolContext, title: str, description: str
+) -> Ticket | None:
+    window_seconds = get_settings().ticket_duplicate_window_seconds
+    if window_seconds <= 0:
+        return None
+
+    cutoff = utcnow() - timedelta(seconds=window_seconds)
+    stmt = (
+        select(Ticket)
+        .where(
+            Ticket.owner_id == ctx.user_id,
+            Ticket.title == title,
+            Ticket.description == description,
+            Ticket.status != "closed",
+            Ticket.created_at >= cutoff,
+        )
+        .order_by(Ticket.id.desc())
+        .limit(1)
+    )
+    return await ctx.session.scalar(stmt)
+
+
 async def create_ticket(ctx: ToolContext, args: dict) -> str:
+    title = args["title"]
+    description = args.get("description", "")
+
+    duplicate = await _find_recent_duplicate(ctx, title, description)
+    if duplicate is not None:
+        return json.dumps(
+            {
+                "created": _serialize(duplicate),
+                "duplicate": True,
+                "message": f"检测到重复提交,已返回原工单,编号 {duplicate.id}",
+            },
+            ensure_ascii=False,
+        )
+
     ticket = Ticket(
         owner_id=ctx.user_id,
-        title=args["title"],
-        description=args.get("description", ""),
+        title=title,
+        description=description,
         priority=args["priority"],
     )
     ctx.session.add(ticket)
     await ctx.session.commit()
     await ctx.session.refresh(ticket)
     return json.dumps(
-        {"created": _serialize(ticket), "message": f"工单已创建,编号 {ticket.id}"},
+        {
+            "created": _serialize(ticket),
+            "duplicate": False,
+            "message": f"工单已创建,编号 {ticket.id}",
+        },
         ensure_ascii=False,
     )
 

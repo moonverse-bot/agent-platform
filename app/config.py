@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     # 不让一个挂住的外部依赖把整轮对话拖死;单个工具可以覆盖这个值。
     tool_timeout_seconds: float = Field(default=30.0, gt=0)
 
+    # 工单防重复:同一用户在该窗口内提交相同标题和描述时返回已有工单。
+    # 设为 0 可关闭检测。
+    ticket_duplicate_window_seconds: int = Field(default=300, ge=0)
+
     # 知识库检索
     # mode: hybrid(关键词 + 向量排名融合,默认)| keyword(只走关键词)| vector(只走向量)
     retrieval_mode: str = "hybrid"
